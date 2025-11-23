@@ -1,11 +1,16 @@
 from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
 import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
 app = Flask(__name__)
 CORS(app)
 
-GEMINI_API_KEY = "AIzaSyDvPLYJdugD4MMbyJCB8i9zmB7ElUoZASw"
+
 def search_gene(gene_name):
     """
     umm so this function searches for a gene and gets basic information
