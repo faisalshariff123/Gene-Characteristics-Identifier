@@ -1,13 +1,9 @@
-# app.py — Bio Re:code Backend Server (Gemini 2.0 Flash Version)
-# This file handles searching for genes and generating AI summaries using Google Gemini 2.0.
-
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import requests
 import os
 from dotenv import load_dotenv
 
-# Load environment variables (so we don't expose API keys in code)
 load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
@@ -15,9 +11,7 @@ app = Flask(__name__)
 CORS(app)  # Enables frontend (like Streamlit or HTML) to talk to this backend
 
 
-# =====================================================
-# 🧬 Function 1: Search for a gene in the NCBI database
-# =====================================================
+
 def search_gene(gene_name):
     """
     This function searches for a gene and retrieves basic biological information
@@ -27,7 +21,7 @@ def search_gene(gene_name):
     print(f"Searching for gene: {gene_name}")
     
     try:
-        # Step 1: Find the gene ID using NCBI's eSearch API
+        
         url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
         params = {
             'db': 'gene',
@@ -43,9 +37,9 @@ def search_gene(gene_name):
             return {"error": "Gene not found"}
         
         gene_id = data['esearchresult']['idlist'][0]
-        print(f"Found gene ID: {gene_id}")  # FIXED TYPO: was gene_sid
+        print(f"Found gene ID: {gene_id}")  
         
-        # Step 2: Get detailed info using NCBI's eSummary API
+        
         summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
         summary_params = {
             'db': 'gene',
@@ -58,7 +52,6 @@ def search_gene(gene_name):
         
         gene_info = summary_data['result'][gene_id]
         
-        # Step 3: Return key details for display or AI summary
         return {
             'name': gene_info.get('name', gene_name),  # Gene symbol (e.g., BRCA1)
             'gene_id': gene_id,  # Unique NCBI Gene ID
@@ -77,9 +70,7 @@ def search_gene(gene_name):
         return {"error": str(e)}
 
 
-# =====================================================
-# 🤖 Function 2: Generate AI Summary using OpenRouter API
-# =====================================================
+
 def create_ai_summary(gene_info):
     """
     This function takes gene information and asks an AI model via OpenRouter
@@ -90,10 +81,8 @@ def create_ai_summary(gene_info):
     print("Creating AI summary with OpenRouter...")
     
     try:
-        # OpenRouter API endpoint
         url = "https://openrouter.ai/api/v1/chat/completions"
         
-        # Prompt template for AI
         prompt = f"""You are a bioinformatics expert. Create a brief 3–4 sentence summary for researchers and clinicians.
 
 Gene: {gene_info.get('name', 'Unknown')}
@@ -107,16 +96,16 @@ Focus on:
 
 Keep it concise and professional."""
         
-        # OpenRouter request payload
+      
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost:5000",  # Optional, for rankings
-            "X-Title": "Bio Re:code Gene Search"       # Optional, for rankings
+            "HTTP-Referer": "http://localhost:5000",  
+            "X-Title": "Bio Re:code Gene Search"       
         }
         
         data = {
-            "model": "anthropic/claude-3.5-sonnet",  # You can change this to other models
+            "model": "anthropic/claude-3.5-sonnet",  #
             "messages": [
                 {
                     "role": "user",
@@ -127,11 +116,10 @@ Keep it concise and professional."""
             "max_tokens": 300
         }
         
-        # Send the request to OpenRouter
         response = requests.post(url, json=data, headers=headers, timeout=30)
         result = response.json()
         
-        # Extract AI text response
+        
         if 'choices' in result and len(result['choices']) > 0:
             ai_text = result['choices'][0]['message']['content']
             model_used = result.get('model', 'Unknown Model')
@@ -145,11 +133,7 @@ Keep it concise and professional."""
         return f"AI summary unavailable: {str(e)}", "Error"
 
 
-# =====================================================
-# 🌐 Flask API Endpoints
-# =====================================================
 
-# Serve the CRT frontend
 @app.route('/')
 def index():
     """Serve the retro CRT-themed frontend interface"""
@@ -179,10 +163,8 @@ def search():
     if "error" in gene_data:
         return jsonify(gene_data), 404
     
-    # Step 2: Generate AI summary with OpenRouter
     ai_summary, ai_model = create_ai_summary(gene_data)
-    
-    # Step 3: Combine all info into one response
+
     result = {
         "success": True,
         "gene": gene_data['name'],
@@ -204,7 +186,7 @@ def search():
     return jsonify(result)
 
 
-# CRT Frontend compatible endpoint
+
 @app.route('/api/search', methods=['POST'])
 def api_search():
     """
@@ -221,15 +203,14 @@ def api_search():
     
     print(f"Searching for: {gene_name}")
     
-    # Step 1: Get gene data from NCBI
+
     gene_data = search_gene(gene_name)
     if "error" in gene_data:
         return jsonify({'error': f'Gene {gene_name} not found in database'}), 404
     
-    # Step 2: Generate AI summary with OpenRouter
+    
     ai_summary, ai_model = create_ai_summary(gene_data)
     
-    # Step 3: Return data in format compatible with CRT frontend
     result = {
         'symbol': gene_data['name'],
         'name': gene_data['description'],
@@ -249,7 +230,7 @@ def api_search():
     return jsonify(result)
 
 
-# Simple test route to check backend connection
+
 @app.route('/test', methods=['GET'])
 def test():
     """
@@ -268,9 +249,6 @@ def test():
     })
 
 
-# =====================================================
-# 🚀 Run the Flask Server
-# =====================================================
 if __name__ == '__main__':
     print("=" * 50)
     print("🧬 Bio Re:code Server Starting...")
