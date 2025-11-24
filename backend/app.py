@@ -1,7 +1,7 @@
 # app.py — Bio Re:code Backend Server (Gemini 2.0 Flash Version)
 # This file handles searching for genes and generating AI summaries using Google Gemini 2.0.
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import requests
 import os
@@ -9,9 +9,7 @@ from dotenv import load_dotenv
 
 # Load environment variables (so we don't expose API keys in code)
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 app = Flask(__name__)
 CORS(app)  # Enables frontend (like Streamlit or HTML) to talk to this backend
@@ -45,7 +43,7 @@ def search_gene(gene_name):
             return {"error": "Gene not found"}
         
         gene_id = data['esearchresult']['idlist'][0]
-        print(f"Found gene ID: {gene_sid}")
+        print(f"Found gene ID: {gene_id}")  # FIXED TYPO: was gene_sid
         
         # Step 2: Get detailed info using NCBI's eSummary API
         summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
@@ -80,22 +78,22 @@ def search_gene(gene_name):
 
 
 # =====================================================
-# 🤖 Function 2: Generate AI Summary using Google Gemini 2.0 Flash
+# 🤖 Function 2: Generate AI Summary using OpenRouter API
 # =====================================================
 def create_ai_summary(gene_info):
     """
-    This function takes gene information and asks the Google Gemini 2.0 Flash model
+    This function takes gene information and asks an AI model via OpenRouter
     to create a short, human-readable summary for researchers and clinicians.
     
-    Gemini 2.0 Flash is faster and more efficient than 1.5 Pro!
+    OpenRouter provides access to multiple models including Claude, GPT-4, and more!
     """
-    print("Creating AI summary with Gemini 2.0 Flash...")
+    print("Creating AI summary with OpenRouter...")
     
     try:
-        # Google Gemini 2.0 Flash endpoint
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={GEMINI_API_KEY}"
+        # OpenRouter API endpoint
+        url = "https://openrouter.ai/api/v1/chat/completions"
         
-        # Prompt template for Gemini
+        # Prompt template for AI
         prompt = f"""You are a bioinformatics expert. Create a brief 3–4 sentence summary for researchers and clinicians.
 
 Gene: {gene_info.get('name', 'Unknown')}
@@ -109,39 +107,56 @@ Focus on:
 
 Keep it concise and professional."""
         
-        # Gemini 2.0 request payload
-        data = {
-            "contents": [{
-                "parts": [{"text": prompt}]
-            }],
-            "generationConfig": {
-                "temperature": 0.3,          # Keep tone factual and consistent
-                "maxOutputTokens": 300,      # Limit summary length
-                "topP": 0.8,                 # Nucleus sampling for better quality
-                "topK": 40                   # Top-k sampling
-            }
+        # OpenRouter request payload
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:5000",  # Optional, for rankings
+            "X-Title": "Bio Re:code Gene Search"       # Optional, for rankings
         }
         
-        # Send the request to Gemini 2.0
-        response = requests.post(url, json=data, timeout=30)
+        data = {
+            "model": "anthropic/claude-3.5-sonnet",  # You can change this to other models
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.3,
+            "max_tokens": 300
+        }
+        
+        # Send the request to OpenRouter
+        response = requests.post(url, json=data, headers=headers, timeout=30)
         result = response.json()
         
         # Extract AI text response
-        if 'candidates' in result and len(result['candidates']) > 0:
-            ai_text = result['candidates'][0]['content']['parts'][0]['text']
-            return ai_text
+        if 'choices' in result and len(result['choices']) > 0:
+            ai_text = result['choices'][0]['message']['content']
+            model_used = result.get('model', 'Unknown Model')
+            return ai_text, model_used
         else:
             error_msg = result.get('error', {}).get('message', 'Unknown error')
-            return f"Could not generate AI summary. Error: {error_msg}"
+            return f"Could not generate AI summary. Error: {error_msg}", "Error"
             
     except Exception as e:
         print(f"AI Error: {e}")
-        return f"AI summary unavailable: {str(e)}"
+        return f"AI summary unavailable: {str(e)}", "Error"
 
 
 # =====================================================
 # 🌐 Flask API Endpoints
 # =====================================================
+
+# Serve the CRT frontend
+@app.route('/')
+def index():
+    """Serve the retro CRT-themed frontend interface"""
+    return render_template('index.html')
+
+
+# Original search endpoint
 @app.route('/search', methods=['POST'])
 def search():
     """
@@ -164,8 +179,8 @@ def search():
     if "error" in gene_data:
         return jsonify(gene_data), 404
     
-    # Step 2: Generate AI summary with Gemini 2.0
-    ai_summary = create_ai_summary(gene_data)
+    # Step 2: Generate AI summary with OpenRouter
+    ai_summary, ai_model = create_ai_summary(gene_data)
     
     # Step 3: Combine all info into one response
     result = {
@@ -182,7 +197,52 @@ def search():
         "gene_type": gene_data['gene_type'],
         "ai_summary": ai_summary,
         "source": "NCBI Gene Database",
-        "ai_model": "Google Gemini 2.0 Flash"
+        "ai_model": ai_model
+    }
+    
+    print("Search completed successfully!")
+    return jsonify(result)
+
+
+# CRT Frontend compatible endpoint
+@app.route('/api/search', methods=['POST'])
+def api_search():
+    """
+    This endpoint is compatible with the CRT frontend.
+    It expects a JSON object containing { "gene_name": "<gene_name>" }.
+    """
+    print("\n=== CRT Frontend Search Request ===")
+    
+    data = request.get_json()
+    gene_name = data.get('gene_name', '').strip().upper()
+    
+    if not gene_name:
+        return jsonify({'error': 'No gene name provided'}), 400
+    
+    print(f"Searching for: {gene_name}")
+    
+    # Step 1: Get gene data from NCBI
+    gene_data = search_gene(gene_name)
+    if "error" in gene_data:
+        return jsonify({'error': f'Gene {gene_name} not found in database'}), 404
+    
+    # Step 2: Generate AI summary with OpenRouter
+    ai_summary, ai_model = create_ai_summary(gene_data)
+    
+    # Step 3: Return data in format compatible with CRT frontend
+    result = {
+        'symbol': gene_data['name'],
+        'name': gene_data['description'],
+        'gene_id': gene_data['gene_id'],
+        'chromosome': gene_data['chromosome'],
+        'location': gene_data['map_location'],
+        'description': gene_data['summary'],
+        'aliases': gene_data['aliases'],
+        'mim_number': gene_data['mim_number'],
+        'organism': gene_data['organism'],
+        'gene_type': gene_data['gene_type'],
+        'ai_summary': ai_summary,
+        'ai_model': ai_model
     }
     
     print("Search completed successfully!")
@@ -198,7 +258,13 @@ def test():
     return jsonify({
         "status": "Server is running!",
         "message": "Bio Re:code API v1.0",
-        "ai_model": "Google Gemini 2.0 Flash"
+        "ai_provider": "OpenRouter",
+        "available_models": [
+            "anthropic/claude-3.5-sonnet",
+            "openai/gpt-4-turbo",
+            "google/gemini-pro",
+            "meta-llama/llama-3.1-70b-instruct"
+        ]
     })
 
 
@@ -209,7 +275,7 @@ if __name__ == '__main__':
     print("=" * 50)
     print("🧬 Bio Re:code Server Starting...")
     print("=" * 50)
-    print("🤖 Using: Google Gemini 2.0 Flash (Experimental)")
+    print("🤖 Using: OpenRouter API (Claude, GPT-4, etc.)")
     print("📡 Server running at: http://localhost:5000")
     print("🧪 Test it at: http://localhost:5000/test")
     print("=" * 50)
